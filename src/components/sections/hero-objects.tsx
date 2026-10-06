@@ -2,6 +2,7 @@
 
 import Image from "next/image";
 import {
+  useCallback,
   useEffect,
   useRef,
   useState,
@@ -69,6 +70,10 @@ const EVADE_COOLDOWN = 220;
 const EVADE_RESET = 1800;
 
 const noopSubscribe = () => () => {};
+
+// Demi-hauteur de l'orbite : proportionnelle à la hauteur du hero entier.
+const ryFor = (height: number, mobile: boolean) =>
+  mobile ? clamp(height * 0.3, 150, 420) : clamp(height * 0.36, 180, 560);
 
 const clamp = (v: number, min: number, max: number) =>
   Math.min(max, Math.max(min, v));
@@ -218,6 +223,25 @@ export function HeroObjects() {
 
   // Rayons d'ellipse dans une ref → lus par les transforms sans les recréer.
   const ellipseRef = useRef<Ellipse>({ rx: 480, ry: 210 });
+  // Hauteur réelle du hero (texte + film) : l'orbite couvre toute la section.
+  const heightRef = useRef(0);
+  const mobileRef = useRef(false);
+  const observerRef = useRef<ResizeObserver | null>(null);
+
+  const containerRef = useCallback((node: HTMLDivElement | null) => {
+    observerRef.current?.disconnect();
+    observerRef.current = null;
+    if (!node) return;
+    const observer = new ResizeObserver(() => {
+      heightRef.current = node.offsetHeight;
+      ellipseRef.current = {
+        ...ellipseRef.current,
+        ry: ryFor(node.offsetHeight, mobileRef.current),
+      };
+    });
+    observer.observe(node);
+    observerRef.current = observer;
+  }, []);
 
   const time = useTime();
   const pxRaw = useMotionValue(0);
@@ -234,11 +258,11 @@ export function HeroObjects() {
     const compute = () => {
       const mobile = mql.matches;
       const vw = window.innerWidth;
-      const vh = window.innerHeight;
+      mobileRef.current = mobile;
       setIsMobile(mobile);
       ellipseRef.current = {
-        rx: clamp(vw * (mobile ? 0.42 : 0.4), mobile ? 150 : 320, 560),
-        ry: clamp(vh * (mobile ? 0.26 : 0.3), 150, 260),
+        rx: clamp(vw * (mobile ? 0.42 : 0.42), mobile ? 150 : 320, 620),
+        ry: ryFor(heightRef.current || window.innerHeight, mobile),
       };
     };
     compute();
@@ -274,7 +298,12 @@ export function HeroObjects() {
   const objects = OBJECTS.slice(0, count);
 
   return (
-    <div className="pointer-events-none absolute inset-0 isolate overflow-hidden">
+    // Pas de contexte d'empilement (pas d'isolate) : le zIndex de chaque objet
+    // le place devant le film (z-10) au premier plan, toujours sous le texte (z-30).
+    <div
+      ref={containerRef}
+      className="pointer-events-none absolute inset-0 overflow-hidden"
+    >
       {objects.map((def, i) => (
         // key inclut le mode → remontage propre si mobile/reduced change
         // (garantit un ordre de hooks stable dans chaque GlassObject).

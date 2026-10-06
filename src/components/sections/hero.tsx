@@ -16,19 +16,18 @@ import { Button } from "@/components/ui/button";
 
 export function Hero() {
   return (
-    // overflow-clip (et non hidden) : hidden casserait l'épinglage sticky du film.
     <section className="relative overflow-clip pt-24">
       {/* Backgrounds */}
-      <div className="pointer-events-none absolute inset-x-0 top-0 h-[100svh] bg-grid [mask-image:radial-gradient(ellipse_at_center,black_20%,transparent_75%)]" />
+      <div className="pointer-events-none absolute inset-0 bg-grid [mask-image:radial-gradient(ellipse_at_center,black_25%,transparent_75%)]" />
       <Spotlight className="-top-40 left-0 md:-top-20 md:left-60" fill="var(--brand)" />
       <div className="pointer-events-none absolute -top-32 left-1/2 size-[40rem] -translate-x-1/2 rounded-full bg-brand/15 blur-[130px]" />
       {/* Lueur cuivrée, en écho au dégradé de la planche de marque */}
       <div className="pointer-events-none absolute top-[28rem] -right-32 size-[36rem] rounded-full bg-[#8b3a1a]/25 blur-[150px]" />
 
-      <div className="relative flex flex-col items-center pt-6">
-        {/* Objets en verre Auxillum orbitant (rendus Blender) */}
-        <HeroObjects />
+      {/* Objets en verre Auxillum orbitant sur toute la hauteur du hero */}
+      <HeroObjects />
 
+      <div className="relative z-30 flex flex-col items-center pt-6">
         {/* Vignette pour la lisibilité du texte par-dessus la 3D */}
         <div className="pointer-events-none absolute top-1/2 left-1/2 h-[38rem] w-[52rem] max-w-[92vw] -translate-x-1/2 -translate-y-1/2 rounded-[50%] bg-background/45 blur-3xl" />
 
