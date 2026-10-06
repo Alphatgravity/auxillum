@@ -1,7 +1,13 @@
 "use client";
 
 import Image from "next/image";
-import { useEffect, useRef, useState, type RefObject } from "react";
+import {
+  useEffect,
+  useRef,
+  useState,
+  useSyncExternalStore,
+  type RefObject,
+} from "react";
 import {
   motion,
   useMotionValue,
@@ -19,7 +25,8 @@ import { asset } from "@/lib/asset";
 // - Orbite continue sur une ellipse plus large que le bloc titre (~40-60s/tour)
 // - Profondeur : les objets "devant" (bas de l'ellipse) sont plus grands,
 //   plus nettes et plus opaques ; celles "derrière" plus petites et floutées.
-// - Parallaxe souris très légère, amplitude propre à chaque objet (ressort).
+// - Parallaxe souris marquée, amplitude propre à chaque objet (ressort).
+// - Fuite au survol : l'objet s'écarte du curseur, dans toutes les directions.
 // - Derrière le texte (z), pointer-events:none, aucun layout shift.
 // - prefers-reduced-motion : orbite figée + pas de parallaxe.
 // - Mobile : 3 objets max, parallaxe désactivée.
@@ -51,6 +58,18 @@ const OBJECTS: ObjectDef[] = [
   { id: "flamme-bleue", src: asset("/objets/flamme-bleue.png"), size: 104, phase: 3.30, period: 58000, parallax: 24 },
 ];
 
+// Intensité de la parallaxe souris (multiplie l'amplitude propre à chaque objet).
+const PARALLAX_BOOST = 1.6;
+
+// Fuite au survol : distance max (px) à laquelle un objet peut s'écarter, et
+// délai minimal entre deux poussées pour laisser le ressort réagir.
+const EVADE_MAX = 220;
+const EVADE_COOLDOWN = 220;
+// Retour progressif à sa place quand la souris ne le dérange plus.
+const EVADE_RESET = 1800;
+
+const noopSubscribe = () => () => {};
+
 const clamp = (v: number, min: number, max: number) =>
   Math.min(max, Math.max(min, v));
 
@@ -65,6 +84,7 @@ function GlassObject({
   py,
   ellipseRef,
   animate,
+  evade,
 }: {
   def: ObjectDef;
   index: number;
@@ -74,6 +94,7 @@ function GlassObject({
   py: MotionValue<number>;
   ellipseRef: RefObject<Ellipse>;
   animate: boolean;
+  evade: boolean;
 }) {
   // Phase répartie régulièrement selon le nombre réel d'objets affichés.
   const phase = def.phase + (index / count) * TWO_PI * 0.15;
@@ -87,12 +108,66 @@ function GlassObject({
   // Résolution intrinsèque = taille au plus près (scale max) → objet net.
   const intrinsic = Math.round(def.size * 1.18);
 
-  const x = useTransform([time, px], ([t, mx]: number[]) => {
-    return Math.cos(angleAt(t)) * ellipseRef.current.rx + mx * def.parallax;
+  // Décalage de fuite (ressort vif) ajouté à l'orbite et à la parallaxe.
+  const nodeRef = useRef<HTMLDivElement>(null);
+  const evadeXRaw = useMotionValue(0);
+  const evadeYRaw = useMotionValue(0);
+  const evadeSpring = { stiffness: 140, damping: 15, mass: 0.6 } as const;
+  const ex = useSpring(evadeXRaw, evadeSpring);
+  const ey = useSpring(evadeYRaw, evadeSpring);
+
+  const x = useTransform([time, px, ex], ([t, mx, e]: number[]) => {
+    return (
+      Math.cos(angleAt(t)) * ellipseRef.current.rx +
+      mx * def.parallax * PARALLAX_BOOST +
+      e
+    );
   });
-  const y = useTransform([time, py], ([t, my]: number[]) => {
-    return Math.sin(angleAt(t)) * ellipseRef.current.ry + my * def.parallax * 0.55;
+  const y = useTransform([time, py, ey], ([t, my, e]: number[]) => {
+    return (
+      Math.sin(angleAt(t)) * ellipseRef.current.ry +
+      my * def.parallax * PARALLAX_BOOST * 0.75 +
+      e
+    );
   });
+
+  // Quand la souris s'approche, l'objet est poussé à l'opposé (avec un angle
+  // un peu aléatoire) : impossible de garder le curseur dessus.
+  useEffect(() => {
+    if (!evade) return;
+    let lastPush = 0;
+    let resetTimer: ReturnType<typeof setTimeout> | undefined;
+    const onMove = (e: PointerEvent) => {
+      const node = nodeRef.current;
+      if (!node) return;
+      const r = node.getBoundingClientRect();
+      const dx = r.left + r.width / 2 - e.clientX;
+      const dy = r.top + r.height / 2 - e.clientY;
+      const dist = Math.hypot(dx, dy);
+      const radius = r.width * 0.55 + 50;
+      const now = performance.now();
+      if (dist > radius || now - lastPush < EVADE_COOLDOWN) return;
+      lastPush = now;
+      const angle = Math.atan2(dy, dx) + (Math.random() - 0.5) * 1.6;
+      const amount = 80 + 90 * (1 - dist / radius);
+      evadeXRaw.set(
+        clamp(evadeXRaw.get() + Math.cos(angle) * amount, -EVADE_MAX, EVADE_MAX),
+      );
+      evadeYRaw.set(
+        clamp(evadeYRaw.get() + Math.sin(angle) * amount, -EVADE_MAX, EVADE_MAX),
+      );
+      clearTimeout(resetTimer);
+      resetTimer = setTimeout(() => {
+        evadeXRaw.set(0);
+        evadeYRaw.set(0);
+      }, EVADE_RESET);
+    };
+    window.addEventListener("pointermove", onMove);
+    return () => {
+      window.removeEventListener("pointermove", onMove);
+      clearTimeout(resetTimer);
+    };
+  }, [evade, evadeXRaw, evadeYRaw]);
   const scale = useTransform(time, (t) => {
     const d = depthAt(t);
     return (0.82 + d * 0.36) / 1.18;
@@ -119,7 +194,7 @@ function GlassObject({
         zIndex,
       }}
     >
-      <motion.div style={{ scale, opacity, filter, rotate }}>
+      <motion.div ref={nodeRef} style={{ scale, opacity, filter, rotate }}>
         <Image
           src={def.src}
           alt=""
@@ -137,7 +212,8 @@ function GlassObject({
 
 export function HeroObjects() {
   const reduce = useReducedMotion();
-  const [mounted, setMounted] = useState(false);
+  // Vrai uniquement côté navigateur (évite tout décalage d'hydratation).
+  const mounted = useSyncExternalStore(noopSubscribe, () => true, () => false);
   const [isMobile, setIsMobile] = useState(false);
 
   // Rayons d'ellipse dans une ref → lus par les transforms sans les recréer.
@@ -154,7 +230,6 @@ export function HeroObjects() {
   // Le breakpoint « mobile » suit matchMedia — même signal que le `md:` de
   // Tailwind — pour rester cohérent avec la mise en page CSS.
   useEffect(() => {
-    setMounted(true);
     const mql = window.matchMedia("(max-width: 767px)");
     const compute = () => {
       const mobile = mql.matches;
@@ -213,6 +288,7 @@ export function HeroObjects() {
           py={py}
           ellipseRef={ellipseRef}
           animate={animate}
+          evade={enableParallax}
         />
       ))}
     </div>
