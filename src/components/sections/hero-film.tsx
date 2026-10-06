@@ -28,8 +28,9 @@ const clamp01 = (v: number) => Math.min(1, Math.max(0, v));
 const easeInOut = (t: number) =>
   t < 0.5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2;
 
-// Hauteur de la scène de scroll (en vh) : plus longue sur ordinateur.
-const STAGE_VH = { mobile: 125, desktop: 165 } as const;
+// Hauteur de la scène de scroll (en vh) : à peine plus que l'écran, pour un
+// effet bref — le film se redresse et rétrécit en un coup de molette.
+const STAGE_VH = { mobile: 108, desktop: 115 } as const;
 
 // Largeur de départ du film : jamais plus de 920 px, et toujours assez petit
 // pour que sa hauteur tienne dans l'écran avec de la marge.
